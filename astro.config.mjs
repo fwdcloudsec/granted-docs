@@ -52,6 +52,7 @@ export default defineConfig({
                 { slug: "recipes/wsl-vscode" },
               ],
             },
+            { slug: "integrating-with-granted" },
             { slug: "faq" },
             { slug: "troubleshooting" },
             { slug: "security" },
