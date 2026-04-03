@@ -1,0 +1,300 @@
+---
+title: "Integrating with Granted"
+description: "How to build an access management platform that integrates with Granted's HTTP profile registry and just-in-time access request features."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Granted's HTTP registry and access request features are built on an open provider protocol. Any access management platform can integrate with Granted by implementing a small set of REST endpoints. This guide describes the protocol and what your platform needs to implement.
+
+# Overview
+
+The integration has two parts:
+
+1. **Profile Registry** — Your platform serves a list of AWS profiles that the user is entitled to assume. Granted syncs these into the user's `~/.aws/config` file.
+2. **Access Request Hook** — When a user assumes a role they don't currently have access to, Granted contacts your platform to request access on their behalf.
+
+Both parts are optional. You can implement the profile registry alone if you don't need just-in-time access requests.
+
+# Discovery
+
+Granted discovers your platform's capabilities by fetching a configuration file:
+
+```
+GET {provider_url}/granted/config.json
+```
+
+This endpoint must be publicly accessible (no authentication required). It returns:
+
+```json
+{
+  "provider": "my-platform",
+  "version": "1.0.0",
+  "api_url": "https://api.example.com",
+  "access_url": "https://app.example.com",
+  "tenant_id": "optional-uuid",
+  "auth": {
+    "type": "oidc",
+    "issuer": "https://auth.example.com",
+    "client_id": "granted-cli",
+    "scopes": ["openid", "profile", "email"]
+  }
+}
+```
+
+| Field | Required | Description |
+| ----- | -------- | ----------- |
+| `provider` | Yes | A short identifier for your platform. |
+| `version` | Yes | Your API version. |
+| `api_url` | Yes | Base URL for all API calls. Granted prepends this to endpoint paths. |
+| `access_url` | Yes | Base URL for human-readable links (e.g. access request pages). |
+| `tenant_id` | No | Default tenant ID. If provided, Granted sends it as `X-Tenant-ID` on all API calls. Single-tenant deployments should populate this so users don't need to specify it manually. |
+| `auth.type` | Yes | Authentication type. Currently only `oidc` is supported. |
+| `auth.issuer` | Yes | OIDC issuer URL. Granted uses this for `.well-known/openid-configuration` discovery. |
+| `auth.client_id` | Yes | OIDC client ID for the Granted CLI. |
+| `auth.scopes` | Yes | OIDC scopes to request during authentication. |
+
+# Authentication
+
+Granted authenticates using OAuth 2.0 Authorization Code with PKCE. The flow:
+
+1. Granted reads `auth.issuer` and `auth.client_id` from the config.
+2. Fetches `{issuer}/.well-known/openid-configuration` to discover the authorization and token endpoints.
+3. Opens the user's browser to the authorization endpoint with a PKCE challenge.
+4. Listens on a local callback URL for the authorization code.
+5. Exchanges the code for an access token at the token endpoint.
+6. Stores the token in the OS keyring.
+
+All subsequent API calls include the token as `Authorization: Bearer {access_token}`. If the token expires, Granted prompts the user to re-authenticate.
+
+Your OIDC provider must support:
+- Authorization Code flow with PKCE (S256 challenge method)
+- Loopback redirect URIs (`http://127.0.0.1:{port}/callback`)
+
+# Profile Registry
+
+## Endpoint
+
+```
+GET {api_url}/v1/registry/profiles
+```
+
+**Headers:**
+- `Authorization: Bearer {token}` (required)
+- `X-Tenant-ID: {uuid}` (included if tenant_id is configured)
+
+**Query parameters:**
+- `page_token` (string, optional) — pagination cursor from a previous response
+
+## Response
+
+```json
+{
+  "profiles": [
+    {
+      "name": "profile production-admin",
+      "attributes": [
+        {"key": "sso_start_url", "value": "https://d-1234567890.awsapps.com/start"},
+        {"key": "sso_region", "value": "us-east-1"},
+        {"key": "sso_account_id", "value": "123456789012"},
+        {"key": "sso_role_name", "value": "Admin"},
+        {"key": "region", "value": "us-east-1"},
+        {"key": "granted_access_provider_url", "value": "https://access.example.com"}
+      ]
+    }
+  ],
+  "next_page_token": ""
+}
+```
+
+Each profile object has:
+
+| Field | Description |
+| ----- | ----------- |
+| `name` | The AWS config section header. Should be prefixed with `profile ` (e.g. `profile production-admin`). |
+| `attributes` | Key-value pairs written as INI keys in the profile section. |
+
+The `granted_access_provider_url` attribute is important — it tells Granted which provider to contact when the user assumes this role and doesn't have access. Without it, the just-in-time access request flow will not activate for the profile.
+
+Set `next_page_token` to a non-empty string if there are more results. Granted will call the endpoint again with `?page_token={value}` until the token is empty.
+
+## What profiles to return
+
+Your platform should return profiles for all entitlements the user is permitted to access based on your policy engine. This includes both resources the user currently has active access to and resources the user could request access to. Granted's role selector shows the full catalog so users can see everything available to them.
+
+The real-time access check — whether the user currently has a grant or needs to submit a request — happens at assume-time through the access request hook, not at sync-time.
+
+# Access Request Hook
+
+When a user runs `assume <profile>` and receives an access denied error, Granted checks whether the profile includes a `granted_access_provider_url` attribute. If it does, Granted contacts your platform to handle the access request flow.
+
+## Ensure Endpoint
+
+```
+POST {api_url}/v1/access/ensure
+```
+
+**Headers:**
+- `Authorization: Bearer {token}` (required)
+- `X-Tenant-ID: {uuid}` (included if tenant_id is configured)
+- `Content-Type: application/json`
+
+**Request body:**
+
+```json
+{
+  "entitlements": [
+    {
+      "target": "AWS::Account::123456789012",
+      "role": "Admin",
+      "duration_seconds": 3600
+    }
+  ],
+  "justification": {
+    "reason": "Investigating production incident INC-1234",
+    "attachments": ["JIRA-1234"]
+  },
+  "dry_run": true
+}
+```
+
+| Field | Description |
+| ----- | ----------- |
+| `entitlements` | The resources and roles the user wants access to. |
+| `entitlements[].target` | The target resource in `AWS::Account::{account_id}` format. |
+| `entitlements[].role` | The role or permission set name. |
+| `entitlements[].duration_seconds` | Requested access duration in seconds. Optional. |
+| `justification.reason` | The user's reason for requesting access. May be empty on the initial dry-run call. |
+| `justification.attachments` | Ticket references or other attachments. |
+| `dry_run` | If `true`, return what would happen without creating any resources. |
+
+Granted calls this endpoint twice during a typical flow:
+
+1. **Dry run** (`dry_run: true`) — to determine what would happen and whether a reason is required.
+2. **Execute** (`dry_run: false`) — to actually create the access request, after prompting the user for a reason if needed.
+
+## Response
+
+```json
+{
+  "grants": [
+    {
+      "id": "grant-uuid",
+      "name": "Production / Admin",
+      "status": "active",
+      "change": "activated",
+      "approved": true,
+      "duration_seconds": 3600,
+      "expires_at": "2026-04-01T12:00:00Z",
+      "activated_at": "2026-04-01T11:00:00Z",
+      "access_request_id": "request-uuid",
+      "provisioning_status": "successful"
+    }
+  ],
+  "validation": {
+    "has_reason": true,
+    "has_ticket_attachment": false
+  },
+  "diagnostics": [
+    {
+      "level": "info",
+      "message": "Access will be auto-approved by policy: Allow SRE prod access"
+    }
+  ]
+}
+```
+
+### Grant status values
+
+| Status | Description |
+| ------ | ----------- |
+| `active` | The user has a live grant and can assume the role. |
+| `pending` | The request is awaiting approval. |
+| `closed` | The grant has expired or been revoked. |
+
+### Grant change values
+
+Granted uses the `change` field to determine what happened and how to display the result to the user:
+
+| Change | CLI Display | Description |
+| ------ | ----------- | ----------- |
+| `activated` | `[ACTIVATED]` (green) | Access was granted and is now active. |
+| `extended` | `[EXTENDED]` (blue) | An existing grant was extended. |
+| `requested` | `[REQUESTED]` (yellow) | A request was submitted and is pending approval. |
+| `provisioning_failed` | `[ERROR]` (red) | The grant failed to provision. |
+| `none` | Shows current status | No change was made (e.g. already active). |
+
+### Validation
+
+The `validation` object tells Granted whether to prompt the user for additional information before submitting the request:
+
+| Field | Description |
+| ----- | ----------- |
+| `has_reason` | If `true`, Granted prompts for a reason if one wasn't provided. |
+| `has_ticket_attachment` | If `true`, Granted prompts for a ticket reference. |
+
+### Diagnostics
+
+The `diagnostics` array contains informational messages displayed to the user. Each diagnostic has a `level` (`info`, `warning`, `error`) and a `message`.
+
+## Request Status Endpoint
+
+```
+GET {api_url}/v1/access/requests/{id}
+```
+
+Returns the current status of an access request. Granted calls this when polling for approval with the `--wait` flag.
+
+**Response:**
+
+```json
+{
+  "id": "request-uuid",
+  "status": "approved",
+  "grants": [
+    {
+      "id": "grant-uuid",
+      "name": "Production / Admin",
+      "status": "active",
+      "approved": true,
+      "expires_at": "2026-04-01T12:00:00Z",
+      "activated_at": "2026-04-01T11:00:00Z",
+      "provisioning_status": "successful"
+    }
+  ]
+}
+```
+
+# Error Handling
+
+All error responses should follow this format:
+
+```json
+{
+  "code": "unauthorized",
+  "message": "Token expired or invalid"
+}
+```
+
+| HTTP Status | Code | Description |
+| ----------- | ---- | ----------- |
+| 401 | `unauthorized` | Token expired or invalid. Granted will prompt re-authentication. |
+| 403 | `forbidden` | Valid token but insufficient permissions. |
+| 403 | `tenant_mismatch` | Token doesn't match the provided `X-Tenant-ID`. |
+| 404 | `not_found` | Resource or request not found. |
+| 422 | `validation_error` | Missing required fields (e.g. reason). |
+| 429 | `rate_limited` | Too many requests. |
+
+# Minimal Implementation
+
+A minimal integration that supports profile syncing requires two endpoints:
+
+1. `GET /granted/config.json` — return your platform metadata and OIDC configuration.
+2. `GET /v1/registry/profiles` — return the user's available profiles.
+
+To additionally support just-in-time access requests, implement:
+
+3. `POST /v1/access/ensure` — evaluate access and create requests.
+4. `GET /v1/access/requests/{id}` — return request status for polling.
+
+Include `granted_access_provider_url` in your profile attributes to enable the access request hook for synced profiles.
