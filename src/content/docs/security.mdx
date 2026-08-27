@@ -12,7 +12,7 @@ Granted utilises the [AWS Go SDK v2](https://github.com/aws/aws-sdk-go-v2) for a
 
 ## Release Verification
 
-Granted binaries are signed with our [GPG key](#pgp-public-key). You can verify the integrity and authenticity of a Granted binary by following the process below.
+Granted binaries are signed with our [GPG key](#release-signing-key). You can verify the integrity and authenticity of a Granted binary by following the process below.
 
 <Aside type="caution">
   From v0.39.0 onwards, Granted is maintained by fwdcloudsec and the repository has been transferred to the [fwdcloudsec GitHub organization](https://github.com/fwdcloudsec). Release signing keys have been rotated — see the updated keys below.
@@ -24,7 +24,7 @@ Granted binaries are signed with our [GPG key](#pgp-public-key). You can verify 
   verify when following this process.
 </Aside>
 
-Prior to verifying a release you must import our [GPG key](#pgp-public-key)
+Prior to verifying a release you must import our [GPG key](#release-signing-key)
 
 ```
 # get the key from Keybase, GitHub, or https://docs.granted.dev/security, and save it as granted.asc.
@@ -82,13 +82,23 @@ Additionally, the source code for the addon is [available on GitHub under the MI
 
 ## Vulnerability Reporting
 
-We deeply appreciate any effort to discover and disclose any security vulnerabilities in Granted. We currently do not operate a public bounty program but individuals may be acknowledged in security notifications as appropriate.
+We deeply appreciate any effort to discover and disclose security vulnerabilities in Granted. We currently do not operate a public bounty program, but reporters may be acknowledged in security advisories as appropriate.
 
-If you would like to report a vulnerability in Granted, please email granted-support@fwdcloudsec.org rather than raising an issue on GitHub. We ask that you follow the [responsible disclosure model](https://en.wikipedia.org/wiki/Responsible_disclosure). You may encrypt your message with our PGP key printed below.
+Please report security vulnerabilities through [GitHub private vulnerability reporting](https://github.com/fwdcloudsec/granted/security/advisories/new) on the Granted repository. This creates a private advisory visible only to you and the Granted maintainers. Please do not report security vulnerabilities through public GitHub issues. If you are unable to use GitHub, you can email granted-support@fwdcloudsec.org instead.
 
-## PGP Public Key
+### Coordinated vulnerability disclosure
 
-Our release signing PGP public key has fingerprint `59AD 05A4 DA73 FD45 BABB 0D14 236F B5E3 8552 8EB4`. A copy of the public key is included below.
+We follow a coordinated vulnerability disclosure process, aligned with the requirements of the [EU Cyber Resilience Act](https://eur-lex.europa.eu/eli/reg/2024/2847/oj):
+
+- We will acknowledge your report within 5 business days.
+- We will investigate, keep you informed of progress, and work with you on remediation.
+- We will remediate confirmed vulnerabilities without undue delay and distribute security fixes free of charge through our standard release channels.
+- Once a fix is available, we will publish a [GitHub Security Advisory](https://github.com/fwdcloudsec/granted/security/advisories) describing the vulnerability, its severity and impact, and the fixed versions, and request a CVE where appropriate.
+- We ask that you do not publicly disclose the vulnerability until a fix has been released, and we will credit you in the advisory unless you prefer to remain anonymous.
+
+## Release signing key
+
+Our release signing PGP public key has fingerprint `59AD 05A4 DA73 FD45 BABB 0D14 236F B5E3 8552 8EB4`. This key is used to sign release artifacts (see [Release Verification](#release-verification) above) — it is not used for vulnerability reports. A copy of the public key is included below.
 
 ```
 -----BEGIN PGP PUBLIC KEY BLOCK-----
