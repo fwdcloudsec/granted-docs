@@ -82,6 +82,30 @@ credential_process = granted credential-process --profile gen_AccountName/RoleNa
 # ...
 ```
 
+### Set a default region
+
+By default, generated profiles don't include a `region` key, so the AWS CLI falls back to your environment variables or `default` profile region. Use `--default-region` to write an explicit `region` on every generated profile. This region is independent of the SSO region, which is useful when your SSO instance lives in one region but you want your API calls to default to another.
+
+```
+granted sso generate --sso-region us-east-1 --default-region eu-west-1 https://example.awsapps.com/start
+```
+
+Output:
+
+```
+[profile AccountName/RoleName]
+region = eu-west-1
+granted_sso_region = us-east-1
+granted_sso_account_id = 123456789012
+granted_sso_role_name = RoleName
+granted_sso_start_url = https://example.awsapps.com/start
+commonfate_generated_by = aws-sso
+credential_process = granted credential-process --profile AccountName/RoleName
+# ...
+```
+
+The flag accepts region shorthands (for example `ew1` expands to `eu-west-1`) and applies the same region to all generated profiles. It is available on both the `generate` and `populate` commands.
+
 ### Prune stale generated profiles
 
 When `--prune` is provided, profiles with the `commonfate_generated_by` key will be removed if they no longer exist in the source. This can be useful for removing roles which no longer exist in AWS SSO. The `--prune` flag is only supported on the `populate` command.
