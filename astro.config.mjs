@@ -14,7 +14,7 @@ export default defineConfig({
     starlight({
       title: "Granted",
       social: {
-        github: "https://github.com/common-fate",
+        github: "https://github.com/fwdcloudsec/granted",
       },
 
       sidebar: [
