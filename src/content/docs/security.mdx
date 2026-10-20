@@ -65,6 +65,16 @@ gpg import granted.asc
    gpg --verify ./checksums.txt.sig
    ```
 
+## macOS code signing
+
+From v0.40.0, macOS binaries from our releases and our managed `fwdcloudsec/granted` Homebrew tap are signed and notarized by Apple. macOS verifies this on launch. To check a Homebrew install manually:
+
+```bash
+codesign --verify --verbose "$(brew --prefix)/bin/granted"
+```
+
+This is separate from the GPG signature used for [release verification](#release-verification).
+
 ## Firefox addon security
 
 The [Granted Firefox addon](https://addons.mozilla.org/en-GB/firefox/addon/granted/) operates with the minimum possible permissions and does not have the ability to read information from any web pages. By design, the extension does not have permission to read any information from the DOM when you are accessing cloud provider consoles. The extension uses a [Background Script](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Anatomy_of_a_WebExtension#background_scripts) which can't directly access web page content.
